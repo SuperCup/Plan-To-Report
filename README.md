@@ -121,6 +121,33 @@ copy config\app_settings.example.json config\app_settings.json
 
 建议先基于 `templates/规划转提报示例模板.json` 调整。
 
+## 打包发布
+
+```powershell
+.\build.bat
+.\package_release.ps1
+```
+
+- 可执行程序：`dist_release\PlanToReport\PlanToReport.exe`
+- 离线压缩包：`releases\PlanToReport-win64-*.zip`（默认不提交到 Git）
+
+## 推送到 GitHub
+
+本机需先登录 GitHub CLI（仅需一次）：
+
+```powershell
+.tools\gh\bin\gh.exe auth login
+.\scripts\publish_github.ps1
+```
+
+或手动在 GitHub 新建空仓库 `Plan-To-Report` 后：
+
+```powershell
+git remote add origin https://github.com/<你的用户名>/Plan-To-Report.git
+git branch -M main
+git push -u origin main
+```
+
 ## 当前边界
 
 当前尚未实现复杂能力：
