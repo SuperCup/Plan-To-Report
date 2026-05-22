@@ -15,19 +15,14 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$repoName = "Plan-To-Report"
-$exists = & $gh repo view $repoName 2>$null
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "Remote repo already exists. Pushing..."
-    if (-not (git remote get-url origin 2>$null)) {
-        $user = (& $gh api user -q .login)
-        git remote add origin "https://github.com/$user/$repoName.git"
-    }
+$remoteUrl = "https://github.com/SuperCup/Plan-To-Report.git"
+if (-not (git remote get-url origin 2>$null)) {
+    git remote add origin $remoteUrl
 } else {
-    & $gh repo create $repoName --public --source=. --remote=origin --description "Excel plan sheet to activity summary and UPC report tool"
+    git remote set-url origin $remoteUrl
 }
 
 git branch -M main
 git push -u origin main
 
-Write-Host "Done. Open: https://github.com/$( & $gh api user -q .login )/$repoName"
+Write-Host "Done. Open: https://github.com/SuperCup/Plan-To-Report"

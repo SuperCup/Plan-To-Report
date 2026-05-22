@@ -140,10 +140,10 @@ copy config\app_settings.example.json config\app_settings.json
 .\scripts\publish_github.ps1
 ```
 
-或手动在 GitHub 新建空仓库 `Plan-To-Report` 后：
+远程仓库：https://github.com/SuperCup/Plan-To-Report
 
 ```powershell
-git remote add origin https://github.com/<你的用户名>/Plan-To-Report.git
+git remote add origin https://github.com/SuperCup/Plan-To-Report.git
 git branch -M main
 git push -u origin main
 ```
