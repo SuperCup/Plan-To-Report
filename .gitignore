@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+.venv/
+venv/
+.env
+
+# Build artifacts
+build/
+dist_release/
+PlanToReport.spec
+*.spec.bak
+
+# Local secrets
+config/app_settings.json
+
+# Local tools
+.tools/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+
+# Release zip (generated locally; upload via GitHub Releases if needed)
+releases/*.zip

@@ -1,0 +1,8 @@
+{
+  "deepseek": {
+    "enabled": false,
+    "api_key": "在此填写你的 DeepSeek API Key",
+    "model": "deepseek-chat",
+    "base_url": "https://api.deepseek.com"
+  }
+}

@@ -1,0 +1,329 @@
+{
+  "name": "规划转提报示例模板",
+  "version": "0.2.0",
+  "inputs": [
+    {
+      "key": "规划表",
+      "label": "规划表",
+      "required": true
+    },
+    {
+      "key": "商品清单",
+      "label": "商品清单",
+      "required": false
+    },
+    {
+      "key": "商品匹配逻辑",
+      "label": "商品匹配逻辑",
+      "required": false
+    },
+    {
+      "key": "预算分配表",
+      "label": "预算分配表",
+      "required": false
+    },
+    {
+      "key": "预算匹配逻辑",
+      "label": "预算匹配逻辑",
+      "required": false
+    },
+    {
+      "key": "门店清单",
+      "label": "门店清单",
+      "required": false
+    },
+    {
+      "key": "门店匹配逻辑",
+      "label": "门店匹配逻辑",
+      "required": false
+    }
+  ],
+  "outputs": [
+    {
+      "key": "活动汇总表",
+      "label": "活动汇总表",
+      "file_name": "活动汇总表.xlsx",
+      "sheet_name": "活动汇总表",
+      "primary_input": "规划表",
+      "primary_sheet": null,
+      "filters": [
+        {
+          "column": "活动机制",
+          "operator": "empty",
+          "action": "skip",
+          "reason": "活动机制为空，不生成。"
+        }
+      ],
+      "fields": [
+        {
+          "name": "方案名称",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "自定义编码",
+          "source": {
+            "type": "concat",
+            "separator": "|",
+            "parts": [
+              {
+                "type": "direct",
+                "column": "活动机制"
+              },
+              {
+                "type": "direct",
+                "column": "活动时间"
+              },
+              {
+                "type": "direct",
+                "column": "活动区域/渠道"
+              },
+              {
+                "type": "direct",
+                "column": "活动类型"
+              }
+            ]
+          }
+        },
+        {
+          "name": "活动",
+          "source": {
+            "type": "direct",
+            "column": "活动机制"
+          },
+          "required": true
+        },
+        {
+          "name": "发券渠道",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "券名称",
+          "source": {
+            "type": "concat",
+            "parts": [
+              {
+                "type": "constant",
+                "value": "康师傅"
+              },
+              {
+                "type": "direct",
+                "column": "优惠券类型"
+              }
+            ]
+          }
+        },
+        {
+          "name": "活动时间",
+          "source": {
+            "type": "direct",
+            "column": "活动时间"
+          }
+        },
+        {
+          "name": "优惠券类型",
+          "source": {
+            "type": "constant",
+            "value": "同享"
+          }
+        },
+        {
+          "name": "渠道",
+          "source": {
+            "type": "direct",
+            "column": "活动区域/渠道"
+          }
+        },
+        {
+          "name": "机制名称",
+          "source": {
+            "type": "direct",
+            "column": "活动机制"
+          }
+        },
+        {
+          "name": "机制范围",
+          "source": {
+            "type": "direct",
+            "column": "活动类型"
+          }
+        },
+        {
+          "name": "机制类型",
+          "source": {
+            "type": "constant",
+            "value": "商品券"
+          }
+        },
+        {
+          "name": "预算",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "券总库存",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "单日库存",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "单用户领取总限制",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "单用户每天领取限制",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        },
+        {
+          "name": "备注",
+          "source": {
+            "type": "constant",
+            "value": ""
+          }
+        }
+      ]
+    },
+    {
+      "key": "活动对应UPC表",
+      "label": "活动对应UPC表",
+      "file_name": "活动对应UPC表.xlsx",
+      "sheet_name": "活动对应UPC表",
+      "primary_input": "规划表",
+      "primary_sheet": null,
+      "filters": [
+        {
+          "column": "活动机制",
+          "operator": "empty",
+          "action": "skip",
+          "reason": "活动机制为空，不生成。"
+        }
+      ],
+      "fields": [
+        {
+          "name": "自定义编码",
+          "source": {
+            "type": "concat",
+            "separator": "|",
+            "parts": [
+              {
+                "type": "direct",
+                "column": "活动机制"
+              },
+              {
+                "type": "direct",
+                "column": "活动时间"
+              },
+              {
+                "type": "direct",
+                "column": "活动区域/渠道"
+              },
+              {
+                "type": "direct",
+                "column": "活动类型"
+              }
+            ]
+          }
+        },
+        {
+          "name": "活动名称",
+          "source": {
+            "type": "direct",
+            "column": "活动机制"
+          },
+          "required": true
+        },
+        {
+          "name": "活动机制",
+          "source": {
+            "type": "direct",
+            "column": "活动机制"
+          },
+          "required": true
+        },
+        {
+          "name": "品牌",
+          "source": {
+            "type": "direct",
+            "column": "品牌"
+          }
+        },
+        {
+          "name": "子品牌",
+          "source": {
+            "type": "direct",
+            "column": "子品牌"
+          }
+        },
+        {
+          "name": "产品名称",
+          "source": {
+            "type": "direct",
+            "column": "产品名称"
+          }
+        },
+        {
+          "name": "UPC条形码",
+          "source": {
+            "type": "lookup",
+            "input": "商品清单",
+            "left_column": "产品名称",
+            "right_column": "产品名称",
+            "return_column": "UPC条形码"
+          }
+        },
+        {
+          "name": "指导价",
+          "source": {
+            "type": "lookup",
+            "input": "商品清单",
+            "left_column": "产品名称",
+            "right_column": "产品名称",
+            "return_column": "指导价"
+          }
+        },
+        {
+          "name": "渠道",
+          "source": {
+            "type": "direct",
+            "column": "渠道"
+          }
+        },
+        {
+          "name": "开始时间",
+          "source": {
+            "type": "direct",
+            "column": "开始时间"
+          }
+        },
+        {
+          "name": "结束时间",
+          "source": {
+            "type": "direct",
+            "column": "结束时间"
+          }
+        }
+      ]
+    }
+  ]
+}
