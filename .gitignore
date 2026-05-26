@@ -11,6 +11,7 @@ venv/
 # Build artifacts
 build/
 dist_release/
+output/
 PlanToReport.spec
 *.spec.bak
 

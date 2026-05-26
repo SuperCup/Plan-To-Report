@@ -68,7 +68,7 @@ def table_from_range(raw_table: pd.DataFrame, start_cell: str, end_cell: str, di
     if sliced.empty:
         return pd.DataFrame()
 
-    header = [_normalize_header(value, index) for index, value in enumerate(sliced.iloc[0].tolist())]
+    header = _dedupe_headers([_normalize_header(value, index) for index, value in enumerate(sliced.iloc[0].tolist())])
     records = sliced.iloc[1:].reset_index(drop=True)
     records.columns = header
     return records.dropna(how="all").reset_index(drop=True)
@@ -149,3 +149,16 @@ def _normalize_header(value: Any, index: int) -> str:
     if value is None or pd.isna(value):
         return f"未命名字段{index + 1}"
     return str(value).strip() or f"未命名字段{index + 1}"
+
+
+def _dedupe_headers(headers: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    unique: list[str] = []
+    for header in headers:
+        count = seen.get(header, 0)
+        seen[header] = count + 1
+        if count == 0:
+            unique.append(header)
+        else:
+            unique.append(f"{header}_{count + 1}")
+    return unique

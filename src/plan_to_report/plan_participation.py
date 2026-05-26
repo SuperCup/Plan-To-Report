@@ -45,7 +45,7 @@ def collect_participations(
     aliases = load_flavor_aliases(project_root)
     known_flavors = [row.row_flavor for row in product_rows if row.row_flavor]
     participations: list[ProductParticipation] = []
-    seen: set[tuple[int, str | None]] = set()
+    seen: set[tuple[int, str, str, str | None]] = set()
 
     for anchor in product_rows:
         cell_text = _cell_text(raw, anchor.excel_row, column_index)
@@ -90,7 +90,7 @@ def collect_participations(
             )
 
         for target in targets:
-            key = (target.excel_row, target.row_flavor)
+            key = _product_row_key(target)
             if key in seen:
                 continue
             seen.add(key)
@@ -113,14 +113,17 @@ def build_product_rows(raw: pd.DataFrame, config: PlanSheetConfig, end_row: int)
         spec = _resolve_spec(raw, config, excel_row)
         if not spec or spec == "规格":
             continue
-        brand = _resolve_brand(raw, config, excel_row)
-        if not brand:
+        brand_text = _resolve_brand(raw, config, excel_row, end_row)
+        brands = _split_brand_tokens(brand_text)
+        if not brands:
             continue
         c_text = _cell_text(raw, excel_row, config.brand_col)
         row_flavor = None
-        if c_text and c_text != brand and c_text not in {"品牌", "子品牌"}:
+        c_tokens = _split_brand_tokens(c_text)
+        if c_text and c_text != brand_text and c_text not in {"品牌", "子品牌"} and c_tokens != brands:
             row_flavor = c_text
-        rows.append(ProductRow(excel_row=excel_row, brand=brand, spec=spec, row_flavor=row_flavor))
+        for brand in brands:
+            rows.append(ProductRow(excel_row=excel_row, brand=brand, spec=spec, row_flavor=row_flavor))
     return rows
 
 
@@ -161,19 +164,20 @@ def _resolve_packaging_block(
     flavor_tokens = _split_flavor_tokens(flavor_line)
 
     matched: list[ProductRow] = []
-    seen: set[int] = set()
+    seen: set[tuple[int, str, str, str | None]] = set()
     block = [row for row in product_rows if row.brand == anchor.brand]
 
     for spec_line in spec_lines:
         for row in block:
-            if row.excel_row in seen:
+            row_key = _product_row_key(row)
+            if row_key in seen:
                 continue
             if spec_line not in row.spec and row.spec not in spec_line:
                 continue
             if row.row_flavor:
                 if any(_flavor_equals(row.row_flavor, token) for token in flavor_tokens):
                     matched.append(row)
-                    seen.add(row.excel_row)
+                    seen.add(row_key)
             else:
                 expanded_targets = _resolve_flavor_tokens(
                     product_rows,
@@ -183,9 +187,10 @@ def _resolve_packaging_block(
                     known_flavors,
                 )
                 for item in expanded_targets:
-                    if item.excel_row not in seen:
+                    item_key = _product_row_key(item)
+                    if item_key not in seen:
                         matched.append(item)
-                        seen.add(item.excel_row)
+                        seen.add(item_key)
 
     if matched:
         return matched
@@ -228,20 +233,21 @@ def _resolve_flavor_tokens(
         block = [row for row in product_rows if row.brand == anchor.brand]
 
     matched_rows: list[ProductRow] = []
-    seen_rows: set[int] = set()
+    seen_rows: set[tuple[int, str, str, str | None]] = set()
 
     for token in tokens:
         expanded = expand_flavor_token(token, aliases, known_flavors)
         for candidate in expanded:
             for row in block:
-                if row.excel_row in seen_rows:
+                row_key = _product_row_key(row)
+                if row_key in seen_rows:
                     continue
                 if row.row_flavor and _flavor_equals(row.row_flavor, candidate):
                     matched_rows.append(row)
-                    seen_rows.add(row.excel_row)
+                    seen_rows.add(row_key)
                 elif not row.row_flavor and candidate in row.brand:
                     matched_rows.append(row)
-                    seen_rows.add(row.excel_row)
+                    seen_rows.add(row_key)
 
     if matched_rows:
         return matched_rows
@@ -255,19 +261,36 @@ def _flavor_equals(left: str, right: str) -> bool:
     return left == right or left in right or right in left
 
 
-def _resolve_brand(raw: pd.DataFrame, config: PlanSheetConfig, row: int) -> str:
-    """子品牌组：取 C 列中「非口味行」的末次赋值（该行 D 列无规格时视为组名）。"""
-    brand = ""
+def _product_row_key(row: ProductRow) -> tuple[int, str, str, str | None]:
+    return (row.excel_row, row.brand, row.spec, row.row_flavor)
+
+
+def _resolve_brand(raw: pd.DataFrame, config: PlanSheetConfig, row: int, end_row: int | None = None) -> str:
+    """兼容品牌列纵向合并后值落在组末行、或普通组名在组首行的规划表。"""
+    current = _cell_text(raw, row, config.brand_col)
+    if current and current not in {"品牌", "子品牌"}:
+        return current
+
+    previous_brand = ""
+    previous_row = 0
     scan_start = max(1, config.product_row_start - 30)
     for current in range(scan_start, row + 1):
         value = _cell_text(raw, current, config.brand_col)
         if not value or value in {"品牌", "子品牌"}:
             continue
-        spec_here = _cell_text(raw, current, config.spec_col)
-        if spec_here and spec_here != "规格":
-            continue
-        brand = value
-    return brand
+        previous_brand = value
+        previous_row = current
+
+    previous_spec = _cell_text(raw, previous_row, config.spec_col) if previous_row else ""
+    if previous_brand and (not previous_spec or previous_spec == "规格"):
+        return previous_brand
+
+    scan_end = end_row or _resolve_end_row(raw, config)
+    for current in range(row + 1, scan_end + 1):
+        value = _cell_text(raw, current, config.brand_col)
+        if value and value not in {"品牌", "子品牌"}:
+            return value
+    return previous_brand
 
 
 def _resolve_spec(raw: pd.DataFrame, config: PlanSheetConfig, row: int) -> str:
@@ -278,6 +301,20 @@ def _resolve_spec(raw: pd.DataFrame, config: PlanSheetConfig, row: int) -> str:
         if value and value != "规格":
             spec = value
     return spec
+
+
+def _split_brand_tokens(text: str) -> list[str]:
+    if not text:
+        return []
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    parts = re.split(r"[、,，;；:：|｜/／\\\n\t]+", normalized)
+    tokens: list[str] = []
+    for part in parts:
+        token = part.strip(" \u3000-—_")
+        if not token or token in {"品牌", "子品牌"} or token in tokens:
+            continue
+        tokens.append(token)
+    return tokens
 
 
 def _split_flavor_tokens(text: str) -> list[str]:

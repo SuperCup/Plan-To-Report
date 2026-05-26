@@ -68,4 +68,14 @@ def list_templates(directory: str | Path) -> list[Path]:
     template_dir = Path(directory)
     if not template_dir.exists():
         return []
-    return sorted(template_dir.glob("*.json"))
+
+    templates: list[Path] = []
+    for path in sorted(template_dir.glob("*.json")):
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                raw = json.load(file)
+        except (json.JSONDecodeError, OSError):
+            continue
+        if isinstance(raw, dict) and isinstance(raw.get("inputs"), list) and isinstance(raw.get("outputs"), list):
+            templates.append(path)
+    return templates

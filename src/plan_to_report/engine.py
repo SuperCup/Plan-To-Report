@@ -319,7 +319,9 @@ class ConversionEngine:
 def _is_blank(value: Any) -> bool:
     if value is None:
         return True
+    if isinstance(value, pd.Series):
+        return value.dropna().empty
     try:
         return bool(pd.isna(value))
-    except TypeError:
+    except (TypeError, ValueError):
         return False

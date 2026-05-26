@@ -128,13 +128,13 @@ def build_activity_upc_table(
                         "子品牌": part.brand,
                         "规格": part.spec,
                         "口味提示": part.flavor_hint or "",
-                        "UPC条形码": product.get("UPC条形码") or product.get("商品条形码"),
-                        "标品名称": product.get("标品名称"),
-                        "品牌名称": product.get("品牌名称"),
-                        "口味名称": product.get("口味名称"),
-                        "规格名称": product.get("规格名称"),
-                        "建议零售价": product.get("建议零售价"),
-                        "状态": product.get("状态"),
+                        "UPC条形码": _first_non_blank(product.get("UPC条形码"), product.get("商品条形码")),
+                        "标品名称": _first_non_blank(product.get("标品名称")),
+                        "品牌名称": _first_non_blank(product.get("品牌名称")),
+                        "口味名称": _first_non_blank(product.get("口味名称")),
+                        "规格名称": _first_non_blank(product.get("规格名称")),
+                        "建议零售价": _first_non_blank(product.get("建议零售价")),
+                        "状态": _first_non_blank(product.get("状态")),
                     }
                 )
 
@@ -187,3 +187,24 @@ def _activity_to_summary_row(activity: ParsedActivity) -> dict[str, object]:
         "活动列": activity.column_letter,
         "机制拆分序号": activity.split_index + 1 if activity.split_total > 1 else "",
     }
+
+
+def _first_non_blank(*values: object) -> object:
+    for value in values:
+        if isinstance(value, pd.Series):
+            for item in value.tolist():
+                if not _is_blank(item):
+                    return item
+            continue
+        if not _is_blank(value):
+            return value
+    return None
+
+
+def _is_blank(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False

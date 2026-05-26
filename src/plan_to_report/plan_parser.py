@@ -158,6 +158,16 @@ def parse_plan_sheet(raw: pd.DataFrame, config: PlanSheetConfig) -> PlanParseRes
             else [mechanism]
         )
         segments = segments or [mechanism]
+        if len(segments) > 1:
+            result.issues.append(
+                ConversionIssue(
+                    "info",
+                    "活动汇总表",
+                    None,
+                    get_column_letter(col),
+                    f"列 {get_column_letter(col)} 活动机制拆分为 {len(segments)} 条活动。",
+                )
+            )
 
         for index, segment in enumerate(segments):
             activity_fields = dict(fields)
@@ -174,16 +184,6 @@ def parse_plan_sheet(raw: pd.DataFrame, config: PlanSheetConfig) -> PlanParseRes
                     split_total=len(segments),
                 )
             )
-            if len(segments) > 1:
-                result.issues.append(
-                    ConversionIssue(
-                        "info",
-                        "活动汇总表",
-                        None,
-                        get_column_letter(col),
-                        f"列 {get_column_letter(col)} 活动机制拆分为 {len(segments)} 条活动。",
-                    )
-                )
 
     return result
 

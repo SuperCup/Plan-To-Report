@@ -40,17 +40,18 @@ def build_logic_index(logic_table: pd.DataFrame) -> list[LogicRuleRow]:
     if logic_table is None or logic_table.empty:
         return []
 
-    brand_col = _find_column(logic_table, LOGIC_BRAND_COLUMNS)
+    brand_col = _find_best_column(logic_table, LOGIC_BRAND_COLUMNS)
     spec_col = _find_column(logic_table, LOGIC_SPEC_COLUMNS)
     rule_col = _find_column(logic_table, LOGIC_RULE_COLUMNS)
     if not brand_col or not spec_col or not rule_col:
         return []
 
+    plan_brands = _filled_text_values(logic_table[brand_col])
     rules: list[LogicRuleRow] = []
-    for _, row in logic_table.iterrows():
-        brand = _normalize_text(row.get(brand_col))
-        spec = _normalize_text(row.get(spec_col))
-        logic_text = _normalize_text(row.get(rule_col))
+    for row_index, row in logic_table.iterrows():
+        brand = plan_brands.get(row_index, "")
+        spec = _normalize_text(_row_value(row, spec_col))
+        logic_text = _normalize_text(_row_value(row, rule_col))
         if not brand or not spec or not logic_text:
             continue
         conditions = parse_selection_logic(logic_text)
@@ -63,22 +64,23 @@ def parse_selection_logic(text: str) -> SelectionConditions:
     cleaned = re.sub(r"\([^)]*不要[^)]*\)", "", text)
     cleaned = re.sub(r"（[^）]*不要[^）]*）", "", cleaned)
     conditions = SelectionConditions(raw_logic=text, exclusion_keywords=exclusions)
-    segments = [segment.strip() for segment in cleaned.split("--") if segment.strip()]
-    for segment in segments:
-        if "：" in segment:
-            name, values_text = segment.split("：", 1)
-        elif ":" in segment:
-            name, values_text = segment.split(":", 1)
-        else:
-            continue
-        name = name.strip()
-        values = [value.strip() for value in re.split(r"[、,，]", values_text) if value.strip()]
-        if name == "品牌名称":
-            conditions.brand_names = values
-        elif name == "口味名称":
-            conditions.flavor_names = values
-        elif name == "规格名称":
-            conditions.spec_names = values
+    for line in cleaned.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        segments = [segment.strip() for segment in line.split("--") if segment.strip()]
+        for segment in segments:
+            if "：" in segment:
+                name, values_text = segment.split("：", 1)
+            elif ":" in segment:
+                name, values_text = segment.split(":", 1)
+            else:
+                continue
+            name = name.strip()
+            values = [value.strip() for value in re.split(r"[、,，;；]", values_text) if value.strip()]
+            if name == "品牌名称":
+                _extend_unique(conditions.brand_names, values)
+            elif name == "口味名称":
+                _extend_unique(conditions.flavor_names, values)
+            elif name == "规格名称":
+                _extend_unique(conditions.spec_names, values)
     return conditions
 
 
@@ -123,6 +125,28 @@ def apply_flavor_hint(
         narrowed.flavor_names = matched or expanded
     else:
         narrowed.flavor_names = expanded
+    return narrowed
+
+
+def apply_plan_brand_hint(conditions: SelectionConditions, brand_hint: str) -> SelectionConditions:
+    narrowed = SelectionConditions(
+        brand_names=list(conditions.brand_names),
+        flavor_names=list(conditions.flavor_names),
+        spec_names=list(conditions.spec_names),
+        exclusion_keywords=list(conditions.exclusion_keywords),
+        raw_logic=conditions.raw_logic,
+    )
+    hint = _normalize_text(brand_hint)
+    if not hint:
+        return narrowed
+
+    brand_matches = _matching_names(narrowed.brand_names, hint)
+    flavor_matches = _matching_names(narrowed.flavor_names, hint)
+    if brand_matches:
+        narrowed.brand_names = brand_matches
+        narrowed.flavor_names = flavor_matches
+    elif flavor_matches:
+        narrowed.flavor_names = flavor_matches
     return narrowed
 
 
@@ -192,7 +216,8 @@ def lookup_upc_rows(
         )
         return []
 
-    conditions = apply_flavor_hint(rule.conditions, participation.flavor_hint, aliases)
+    conditions = apply_plan_brand_hint(rule.conditions, participation.brand)
+    conditions = apply_flavor_hint(conditions, participation.flavor_hint, aliases)
     matches = match_products(product_table, conditions)
     if matches.empty:
         issues.append(
@@ -211,9 +236,9 @@ def lookup_upc_rows(
     barcode_col = _find_column(matches, PRODUCT_BARCODE_COLUMNS)
     rows: list[dict[str, Any]] = []
     for _, product_row in matches.iterrows():
-        row_data = {str(column): product_row.get(column) for column in matches.columns}
+        row_data = {str(column): _row_value(product_row, column) for column in matches.columns}
         if barcode_col:
-            row_data["UPC条形码"] = product_row.get(barcode_col)
+            row_data["UPC条形码"] = _row_value(product_row, barcode_col)
         rows.append(row_data)
     return rows
 
@@ -228,6 +253,20 @@ def _flavor_matches_hint(flavor_name: str, hint: str) -> bool:
     return hint[:1] and hint[:1] in flavor_name
 
 
+def _matching_names(names: list[str], hint: str) -> list[str]:
+    normalized_hint = _normalize_text(hint)
+    if not normalized_hint:
+        return []
+    exact = [name for name in names if _normalize_text(name) == normalized_hint]
+    if exact:
+        return exact
+    return [
+        name
+        for name in names
+        if normalized_hint in _normalize_text(name) or _normalize_text(name) in normalized_hint
+    ]
+
+
 def _value_in_candidates(value: Any, candidates: list[str]) -> bool:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return False
@@ -240,13 +279,41 @@ def _value_in_candidates(value: Any, candidates: list[str]) -> bool:
     return any(candidate in actual or actual in candidate for candidate in normalized_candidates if candidate)
 
 
+def _extend_unique(target: list[str], values: list[str]) -> None:
+    for value in values:
+        normalized = _normalize_text(value)
+        if normalized and normalized not in target:
+            target.append(normalized)
+
+
 def _find_column(table: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
-    for column in table.columns:
-        name = _normalize_text(column)
-        for candidate in candidates:
-            if candidate == name or candidate in name:
+    columns = [(str(column), _normalize_text(column)) for column in table.columns]
+    for candidate in candidates:
+        for column, name in columns:
+            if candidate == name:
+                return column
+    for candidate in candidates:
+        for column, name in columns:
+            if candidate in name:
                 return str(column)
     return None
+
+
+def _find_best_column(table: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    matched: list[str] = []
+    for column in table.columns:
+        name = _normalize_text(column)
+        if any(candidate == name or candidate in name for candidate in candidates):
+            matched.append(str(column))
+    if not matched:
+        return None
+    return max(matched, key=lambda column: table[column].map(_normalize_text).astype(bool).sum())
+
+
+def _filled_text_values(series: pd.Series) -> pd.Series:
+    values = series.map(_normalize_text)
+    values = values.replace("", pd.NA).bfill().ffill().fillna("")
+    return values
 
 
 def _parse_exclusion_keywords(text: str) -> list[str]:
@@ -271,11 +338,39 @@ def _keywords_from_exclusion(fragment: str) -> list[str]:
 
 
 def _normalize_text(value: Any) -> str:
+    value = _first_scalar(value)
     if value is None:
         return ""
     try:
         if pd.isna(value):
             return ""
-    except TypeError:
+    except (TypeError, ValueError):
         pass
     return str(value).strip()
+
+
+def _row_value(row: pd.Series, column: Any) -> Any:
+    return _first_scalar(row.get(column))
+
+
+def _first_scalar(value: Any) -> Any:
+    if isinstance(value, pd.Series):
+        for item in value.tolist():
+            if not _is_blank_scalar(item):
+                return item
+        return None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if not _is_blank_scalar(item):
+                return item
+        return None
+    return value
+
+
+def _is_blank_scalar(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False

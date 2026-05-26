@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+from openpyxl.utils.cell import coordinate_to_tuple, get_column_letter
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,15 +23,15 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from openpyxl.utils.cell import get_column_letter
 
+from ..app_settings import load_app_settings, save_app_settings, settings_path
 from ..engine import ConversionEngine
 from ..excel_io import ParsedSheet, parse_workbook_sheets, table_from_range, write_outputs
-from ..models import ConversionIssue, ConversionResult, ConversionTemplate
-from ..app_settings import load_app_settings, save_app_settings, settings_path
+from ..models import ConversionResult, ConversionTemplate
 from ..plan_config import AiSettings, SheetRange
+from ..plan_parser import infer_config_from_range
 from ..plan_pipeline import PlanConversionInput, output_tables, run_plan_conversion
-from ..sheet_inputs import load_role_table
+from ..sheet_inputs import _detect_role_range, load_role_table
 from ..template_loader import list_templates, load_template
 from .excel_preview import SheetExcelPreview, autosize_table_columns, configure_table_full_text
 from .plan_wizard import PlanWizardWidget
@@ -46,35 +47,43 @@ class MainWindow(QMainWindow):
         self.current_result: ConversionResult | None = None
         self.parsed_sheets: list[ParsedSheet] = []
         self.sheet_ranges: dict[int, SheetRange] = {}
+        self.plan_ranges: dict[int, dict[str, SheetRange]] = {}
+        self.sheet_roles: dict[int, str] = {}
+        self._last_upload_dir = project_root
         self._preview_row_index: int | None = None
         self.app_settings = load_app_settings(project_root)
 
         self.setWindowTitle("规划转提报工具 - 批量Sheet版")
-        self.resize(1400, 860)
+        self.resize(1680, 960)
 
-        root = QWidget()
-        self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
+        splitter = QSplitter(Qt.Horizontal)
+        self.setCentralWidget(splitter)
 
-        layout.addWidget(self._build_template_bar())
-        layout.addWidget(self._build_upload_panel())
+        splitter.addWidget(self._build_left_panel())
 
-        splitter = QSplitter(Qt.Vertical)
         self.excel_preview = SheetExcelPreview()
-        self.excel_preview.range_changed.connect(self._on_preview_range_changed)
-        preview_group = QGroupBox("Excel 内容预览（点击单元格选取执行区域）")
+        self.excel_preview.region_changed.connect(self._on_preview_region_changed)
+        preview_group = QGroupBox("Excel 内容预览")
         preview_layout = QVBoxLayout(preview_group)
         preview_layout.addWidget(self.excel_preview)
         splitter.addWidget(preview_group)
 
-        self.result_tabs = QTabWidget()
-        self.result_tabs.setVisible(False)
-        splitter.addWidget(self.result_tabs)
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 2)
-        layout.addWidget(splitter, stretch=1)
+        splitter.addWidget(self._build_right_panel())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 5)
+        splitter.setStretchFactor(2, 2)
+        splitter.setSizes([360, 900, 420])
 
-        layout.addWidget(self._build_execution_panel())
+        self.reload_templates()
+
+    def _build_left_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setMinimumWidth(320)
+        panel.setMaximumWidth(460)
+        layout = QVBoxLayout(panel)
+
+        layout.addWidget(self._build_template_bar())
+        layout.addWidget(self._build_upload_panel(), stretch=1)
 
         action_layout = QHBoxLayout()
         self.run_button = QPushButton("执行转换")
@@ -84,73 +93,77 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(False)
         action_layout.addWidget(self.run_button)
         action_layout.addWidget(self.export_button)
-        action_layout.addStretch()
         layout.addLayout(action_layout)
 
         self.status = QLabel("请选择转换模板。")
+        self.status.setWordWrap(True)
+        self.status.setStyleSheet("color: #333;")
         layout.addWidget(self.status)
+        return panel
 
-        self.reload_templates()
+    def _build_right_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setMinimumWidth(360)
+        layout = QVBoxLayout(panel)
+
+        layout.addWidget(self._build_execution_panel(), stretch=3)
+
+        self.result_tabs = QTabWidget()
+        self.result_tabs.setVisible(False)
+        layout.addWidget(self.result_tabs, stretch=2)
+        return panel
 
     def _build_template_bar(self) -> QWidget:
-        panel = QWidget()
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-
+        group = QGroupBox("模板")
+        layout = QVBoxLayout(group)
         self.template_combo = QComboBox()
         self.template_combo.currentIndexChanged.connect(self.load_selected_template)
         reload_button = QPushButton("刷新模板")
         reload_button.clicked.connect(self.reload_templates)
-
-        layout.addWidget(QLabel("转换模板"))
-        layout.addWidget(self.template_combo, stretch=1)
+        layout.addWidget(self.template_combo)
         layout.addWidget(reload_button)
-        return panel
+        return group
 
     def _build_upload_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        group = QGroupBox("文件与 Sheet")
+        layout = QVBoxLayout(group)
 
         button_layout = QHBoxLayout()
-        upload_button = QPushButton("批量上传 Excel")
+        upload_button = QPushButton("上传 Excel")
         upload_button.clicked.connect(self.choose_excels)
-        preview_button = QPushButton("预览选中 Sheet")
+        preview_button = QPushButton("预览选中")
         preview_button.clicked.connect(self._preview_selected_sheet)
-        self.upload_status = QLabel("未上传文件。")
         button_layout.addWidget(upload_button)
         button_layout.addWidget(preview_button)
-        button_layout.addWidget(self.upload_status, stretch=1)
         layout.addLayout(button_layout)
+
+        self.upload_status = QLabel("未上传文件。")
+        self.upload_status.setWordWrap(True)
+        self.upload_status.setStyleSheet("color: #666;")
+        layout.addWidget(self.upload_status)
 
         self.sheet_table = QTableWidget(0, 8)
         self.sheet_table.setHorizontalHeaderLabels(
-            ["文件", "Sheet", "行数", "列数", "合并单元格提示", "Sheet 类型", "起始", "结束"]
+            ["文件", "Sheet", "行数", "列数", "合并提示", "Sheet 类型", "机制/起始", "商品/结束"]
         )
         self.sheet_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.sheet_table.setSelectionMode(QTableWidget.SingleSelection)
         configure_table_full_text(self.sheet_table)
         self.sheet_table.itemSelectionChanged.connect(self._on_sheet_selection_changed)
-        self.sheet_table.setMaximumHeight(200)
-        layout.addWidget(self.sheet_table)
-        return panel
+        layout.addWidget(self.sheet_table, stretch=1)
+        return group
 
     def _build_execution_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.execution_stack = QWidget()
-        stack_layout = QVBoxLayout(self.execution_stack)
-        stack_layout.setContentsMargins(0, 0, 0, 0)
+        group = QGroupBox("配置")
+        layout = QVBoxLayout(group)
 
         self.legacy_execution_panel = QWidget()
         legacy_layout = QFormLayout(self.legacy_execution_panel)
         self.direction_combo = QComboBox()
         self.direction_combo.addItem("逐行执行：首行为字段名，后续每行一条记录", "row")
         self.direction_combo.addItem("逐列执行：首列为字段名，后续每列一条记录", "column")
-        legacy_layout.addRow("执行顺序：", self.direction_combo)
-        legacy_hint = QLabel("非规划表 Sheet：在预览区选取区域后，按逐行/逐列解析。")
+        legacy_layout.addRow("普通 Sheet 执行顺序：", self.direction_combo)
+        legacy_hint = QLabel("普通 Sheet 在中央预览区框选执行区域；规划表请在左侧类型中选「规划表」。")
         legacy_hint.setWordWrap(True)
         legacy_hint.setStyleSheet("color: #666;")
         legacy_layout.addRow(legacy_hint)
@@ -159,17 +172,16 @@ class MainWindow(QMainWindow):
             project_root=self.project_root,
             on_save_ai=self._persist_ai_settings,
         )
+        self.plan_wizard.pick_requested.connect(self._on_plan_pick_requested)
         self.plan_wizard.load_ai_settings(
             self.app_settings.deepseek,
             settings_path(self.project_root),
         )
 
-        stack_layout.addWidget(self.legacy_execution_panel)
-        stack_layout.addWidget(self.plan_wizard)
+        layout.addWidget(self.legacy_execution_panel)
+        layout.addWidget(self.plan_wizard, stretch=1)
         self.plan_wizard.hide()
-
-        layout.addWidget(self.execution_stack)
-        return panel
+        return group
 
     def reload_templates(self) -> None:
         self.template_combo.blockSignals(True)
@@ -206,12 +218,15 @@ class MainWindow(QMainWindow):
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "选择一个或多个 Excel 文件",
-            str(self.project_root),
+            str(self._last_upload_dir if self._last_upload_dir.exists() else self.project_root),
             "Excel Files (*.xlsx *.xlsm)",
         )
         if not paths:
             return
 
+        self._sync_sheet_roles_from_widgets()
+        previous_count = len(self.parsed_sheets)
+        self._last_upload_dir = Path(paths[0]).resolve().parent
         parsed: list[ParsedSheet] = []
         errors: list[str] = []
         for path in paths:
@@ -220,26 +235,30 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 errors.append(f"{Path(path).name}: {exc}")
 
-        self.parsed_sheets = parsed
-        self.sheet_ranges.clear()
-        self._preview_row_index = None
+        self.parsed_sheets.extend(parsed)
+        self.current_result = None
+        self.export_button.setEnabled(False)
+        self.result_tabs.clear()
+        self.result_tabs.setVisible(False)
         self._render_sheet_table()
-        self.excel_preview.clear()
-        self.upload_status.setText(f"已上传 {len(paths)} 个文件，解析到 {len(parsed)} 个 sheet。请选择一行预览并选取执行区域。")
+        self.upload_status.setText(
+            f"本次新增 {len(paths)} 个文件、{len(parsed)} 个 Sheet；当前共 {len(self.parsed_sheets)} 个 Sheet。"
+        )
         if errors:
             QMessageBox.warning(self, "部分文件解析失败", "\n".join(errors))
         if parsed:
-            self.sheet_table.selectRow(0)
-            self._preview_sheet_at_row(0)
+            self.sheet_table.selectRow(previous_count)
+            self._preview_sheet_at_row(previous_count)
 
     def _render_sheet_table(self) -> None:
         if not hasattr(self, "sheet_table"):
             return
 
+        self._sync_sheet_roles_from_widgets()
         self.sheet_table.setRowCount(len(self.parsed_sheets))
         role_options = self._role_options()
         for row_index, sheet in enumerate(self.parsed_sheets):
-            sheet_range = self.sheet_ranges.get(row_index, SheetRange())
+            display_range = self._display_ranges_for_row(row_index)
             values = [
                 sheet.file_path.name,
                 sheet.sheet_name,
@@ -247,8 +266,8 @@ class MainWindow(QMainWindow):
                 str(len(sheet.data.columns)),
                 "; ".join(sheet.merge_notes),
                 "",
-                sheet_range.start_cell,
-                sheet_range.end_cell or "（自动）",
+                display_range[0],
+                display_range[1],
             ]
             for column_index, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -259,18 +278,32 @@ class MainWindow(QMainWindow):
 
             combo = QComboBox()
             combo.addItems(role_options)
+            role = self.sheet_roles.get(row_index, "")
+            if role:
+                combo.setCurrentText(role)
             combo.currentTextChanged.connect(lambda _text, idx=row_index: self._on_role_changed(idx))
             self.sheet_table.setCellWidget(row_index, 5, combo)
 
-        autosize_table_columns(self.sheet_table, max_width=360)
+        autosize_table_columns(self.sheet_table, max_width=260)
 
     def _on_role_changed(self, row_index: int) -> None:
         combo = self.sheet_table.cellWidget(row_index, 5)
-        if isinstance(combo, QComboBox) and combo.currentText().strip() == "规划表":
+        if isinstance(combo, QComboBox):
+            role = combo.currentText().strip()
+            self.sheet_roles[row_index] = role
+        else:
+            role = ""
+        if role in {"商品清单", "商品匹配逻辑"}:
+            current_range = self.sheet_ranges.get(row_index, SheetRange())
+            if (current_range.start_cell or "A1").upper() == "A1" and not current_range.end_cell.strip():
+                self.sheet_ranges[row_index] = _detect_role_range(self.parsed_sheets[row_index].data, role)
+        if role == "规划表":
+            self._ensure_plan_ranges(row_index)
             self.sheet_table.selectRow(row_index)
             self._preview_sheet_at_row(row_index)
-            self.status.setText("已指定为规划表：请按下方四步向导配置后执行转换。")
+            self.status.setText("已指定为规划表：请在中央预览区框选机制信息区和商品勾选区。")
         self._update_execution_mode(row_index)
+        self._update_range_cells(row_index)
 
     def _on_sheet_selection_changed(self) -> None:
         rows = self.sheet_table.selectionModel().selectedRows()
@@ -292,35 +325,52 @@ class MainWindow(QMainWindow):
         self._preview_row_index = row_index
         sheet = self.parsed_sheets[row_index]
         sheet_range = self.sheet_ranges.get(row_index, SheetRange())
+        is_plan = self._is_plan_sheet_row(row_index)
+        plan_ranges = self._ensure_plan_ranges(row_index) if is_plan else None
         self.excel_preview.load_sheet(
             sheet.file_path.name,
             sheet.sheet_name,
             sheet.data,
             sheet_range,
+            plan_ranges,
+            active_region="mechanism" if is_plan else "table",
+            show_plan_regions=is_plan,
         )
         self._update_execution_mode(row_index)
-        if self._is_plan_sheet_row(row_index):
+        if is_plan and plan_ranges:
             self.plan_wizard.refresh_from_sheet(
                 sheet.data,
-                sheet_range.start_cell,
-                sheet_range.end_cell,
+                plan_ranges["mechanism"],
+                plan_ranges["product"],
             )
 
-    def _on_preview_range_changed(self, start_cell: str, end_cell: str) -> None:
+    def _on_preview_region_changed(self, region: str, start_cell: str, end_cell: str) -> None:
         if self._preview_row_index is None:
             return
 
-        self.sheet_ranges[self._preview_row_index] = SheetRange(start_cell=start_cell, end_cell=end_cell)
-        start_item = self.sheet_table.item(self._preview_row_index, 6)
-        end_item = self.sheet_table.item(self._preview_row_index, 7)
-        if start_item:
-            start_item.setText(start_cell)
-        if end_item:
-            end_item.setText(end_cell or "（自动）")
+        row_index = self._preview_row_index
+        if region == "table":
+            self.sheet_ranges[row_index] = SheetRange(start_cell=start_cell, end_cell=end_cell)
+        else:
+            ranges = self._ensure_plan_ranges(row_index)
+            ranges[region] = SheetRange(start_cell=start_cell, end_cell=end_cell)
+            if self._is_plan_sheet_row(row_index):
+                sheet = self.parsed_sheets[row_index]
+                self.plan_wizard.refresh_from_sheet(
+                    sheet.data,
+                    ranges["mechanism"],
+                    ranges["product"],
+                )
+        self._update_range_cells(row_index)
 
-        if self._is_plan_sheet_row(self._preview_row_index):
-            sheet = self.parsed_sheets[self._preview_row_index]
-            self.plan_wizard.refresh_from_sheet(sheet.data, start_cell, end_cell)
+    def _on_plan_pick_requested(self, region: str, edge: str) -> None:
+        if self._preview_row_index is None or not self._is_plan_sheet_row(self._preview_row_index):
+            self.status.setText("请先在左侧选择一个 Sheet，并将 Sheet 类型设为「规划表」。")
+            return
+        self.excel_preview.set_region_pick_mode(region, edge)
+        region_name = "机制信息区" if region == "mechanism" else "商品勾选区"
+        edge_name = "左上角" if edge == "start" else "右下角"
+        self.status.setText(f"请在中央预览区点击{region_name}的{edge_name}。")
 
     def _role_options(self) -> list[str]:
         roles = [
@@ -342,7 +392,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "请先选择模板。")
             return
         if not self.parsed_sheets:
-            QMessageBox.warning(self, "提示", "请先批量上传 Excel。")
+            QMessageBox.warning(self, "提示", "请先上传 Excel。")
             return
 
         plan_index = self._find_plan_sheet_index()
@@ -419,6 +469,7 @@ class MainWindow(QMainWindow):
         is_plan = self._is_plan_sheet_row(row_index)
         self.plan_wizard.setVisible(is_plan)
         self.legacy_execution_panel.setVisible(not is_plan)
+        self.excel_preview.set_plan_region_visibility(is_plan)
 
     def _collect_typed_tables(self) -> dict[str, pd.DataFrame]:
         input_tables: dict[str, pd.DataFrame] = {}
@@ -438,7 +489,7 @@ class MainWindow(QMainWindow):
             input_tables[role] = table_from_range(sheet.data, start_cell, end_cell, direction)
 
         if not input_tables:
-            raise ValueError("请至少为一个非规划表 sheet 指定类型。")
+            raise ValueError("请至少为一个非规划表 Sheet 指定类型。")
         return input_tables
 
     def _render_result_preview(self, result: ConversionResult) -> None:
@@ -464,6 +515,58 @@ class MainWindow(QMainWindow):
             return
 
         QMessageBox.information(self, "导出完成", "\n".join(str(path) for path in written))
+
+    def _ensure_plan_ranges(self, row_index: int) -> dict[str, SheetRange]:
+        if row_index in self.plan_ranges:
+            return self.plan_ranges[row_index]
+
+        sheet = self.parsed_sheets[row_index]
+        try:
+            config = infer_config_from_range(sheet.data, "D2", _last_cell(sheet.data))
+            end_row, end_col = coordinate_to_tuple(config.end_cell)
+            mechanism = SheetRange(
+                config.start_cell,
+                f"{get_column_letter(end_col)}{config.activity_row_end}",
+            )
+            product_start_row = max(1, config.product_row_start - 1)
+            product = SheetRange(
+                f"{get_column_letter(config.brand_col)}{product_start_row}",
+                config.end_cell,
+            )
+        except Exception:
+            mechanism = SheetRange("D2", "")
+            product = SheetRange("C10", "")
+
+        self.plan_ranges[row_index] = {"mechanism": mechanism, "product": product}
+        return self.plan_ranges[row_index]
+
+    def _display_ranges_for_row(self, row_index: int) -> tuple[str, str]:
+        if self.sheet_roles.get(row_index) == "规划表" and row_index in self.plan_ranges:
+            ranges = self.plan_ranges[row_index]
+            return _format_range(ranges["mechanism"]), _format_range(ranges["product"])
+        sheet_range = self.sheet_ranges.get(row_index, SheetRange())
+        return sheet_range.start_cell, sheet_range.end_cell or "自动"
+
+    def _update_range_cells(self, row_index: int) -> None:
+        if row_index < 0 or row_index >= self.sheet_table.rowCount():
+            return
+        left, right = self._display_ranges_for_row(row_index)
+        left_item = self.sheet_table.item(row_index, 6)
+        right_item = self.sheet_table.item(row_index, 7)
+        if left_item:
+            left_item.setText(left)
+            left_item.setToolTip(left)
+        if right_item:
+            right_item.setText(right)
+            right_item.setToolTip(right)
+
+    def _sync_sheet_roles_from_widgets(self) -> None:
+        if not hasattr(self, "sheet_table"):
+            return
+        for row_index in range(self.sheet_table.rowCount()):
+            combo = self.sheet_table.cellWidget(row_index, 5)
+            if isinstance(combo, QComboBox):
+                self.sheet_roles[row_index] = combo.currentText().strip()
 
 
 def _dataframe_to_table(dataframe: pd.DataFrame) -> QTableWidget:
@@ -491,6 +594,14 @@ def _last_cell(dataframe: pd.DataFrame) -> str:
     if dataframe.empty:
         return "A1"
     return f"{get_column_letter(max(1, len(dataframe.columns)))}{max(1, len(dataframe))}"
+
+
+def _format_range(sheet_range: SheetRange) -> str:
+    if not sheet_range.start_cell:
+        return "未设置"
+    if not sheet_range.end_cell:
+        return f"{sheet_range.start_cell}:自动"
+    return f"{sheet_range.start_cell}:{sheet_range.end_cell}"
 
 
 def run_app(project_root: Path) -> int:
