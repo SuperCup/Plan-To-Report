@@ -44,14 +44,16 @@ python -m plan_to_report
 打包产物在：
 
 ```text
-dist\PlanToReport\PlanToReport.exe
+dist_release\PlanToReport\PlanToReport.exe
 ```
 
 打包后的可编辑模板目录在：
 
 ```text
-dist\PlanToReport\templates
+dist_release\PlanToReport\templates
 ```
+
+注意：`build\` 是 PyInstaller 的中间构建目录，不要运行其中的 `PlanToReport.exe`；给用户使用或分发时只使用 `dist_release\PlanToReport\PlanToReport.exe` 或 `releases\PlanToReport-win64-*.zip`。
 
 ## 使用流程
 
