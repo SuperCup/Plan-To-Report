@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.utils.cell import coordinate_to_tuple, get_column_letter
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -606,6 +607,19 @@ def _format_range(sheet_range: SheetRange) -> str:
 
 def run_app(project_root: Path) -> int:
     app = QApplication([])
+    icon = _app_icon(project_root)
+    if not icon.isNull():
+        app.setWindowIcon(icon)
     window = MainWindow(project_root)
+    if not icon.isNull():
+        window.setWindowIcon(icon)
     window.show()
     return app.exec()
+
+
+def _app_icon(project_root: Path) -> QIcon:
+    for relative_path in ("assets/app.ico", "assets/logo.png"):
+        path = project_root / relative_path
+        if path.exists():
+            return QIcon(str(path))
+    return QIcon()

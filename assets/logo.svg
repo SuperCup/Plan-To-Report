@@ -1,0 +1,23 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12324A"/>
+      <stop offset="0.52" stop-color="#176B7A"/>
+      <stop offset="1" stop-color="#24A37B"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="334" y1="258" x2="744" y2="832" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9F4F1"/>
+    </linearGradient>
+    <filter id="shadow" x="96" y="84" width="832" height="864" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="36" stdDeviation="36" flood-color="#09202C" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="96" y="96" width="832" height="832" rx="210" fill="url(#bg)" filter="url(#shadow)"/>
+  <path d="M244 254C244 232 262 214 284 214H610C632 214 650 232 650 254V604C650 626 632 644 610 644H284C262 644 244 626 244 604V254Z" fill="#DDF7F2" fill-opacity="0.96"/>
+  <path d="M310 306H584M310 394H584M310 482H584M394 254V604M490 254V604" stroke="#1D6B7B" stroke-width="32" stroke-linecap="round" opacity="0.72"/>
+  <path d="M392 678C366 678 354 646 373 628L498 508C516 491 546 504 546 529V593H608C656 593 696 554 696 506V404C696 382 714 364 736 364C758 364 776 382 776 404V506C776 598 701 673 609 673H546V738C546 763 516 776 498 759L373 639C354 621 366 678 392 678Z" fill="#FFB84D"/>
+  <path d="M548 392H744C772 392 794 414 794 442V746C794 774 772 796 744 796H460C432 796 410 774 410 746V682L496 764C544 810 624 776 624 710V690H744V442H548V392Z" fill="url(#paper)"/>
+  <path d="M514 492H704M514 576H704M514 660H668" stroke="#17455F" stroke-width="34" stroke-linecap="round"/>
+  <path d="M522 758L478 714L506 686L522 702L588 636L616 664L522 758Z" fill="#24A37B"/>
+</svg>
